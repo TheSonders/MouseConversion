@@ -50,6 +50,7 @@ localparam PS2PERIOD=(CLKFREQ/PS2BAUDRATE);
 localparam HUNDRED=(CLKFREQ/10_000);
 localparam SERIALBAUDRATE=1_200;
 localparam SERIALPERIOD=(CLKFREQ/SERIALBAUDRATE);
+localparam MILLIS=(CLKFREQ/1000);
 
 `define 	PAR_ODD	0
 `define	PAR_EVEN	1
@@ -126,14 +127,17 @@ end
 //////////////PS2 Processing///////////////
 ///////////////////////////////////////////
 
-`define PS2Pr_Idle		0
-`define PS2Pr_WaitID		1
-`define PS2Pr_WaitACK	2
-`define PS2Pr_Query		3
-`define PS2Pr_Wait0		4
-`define PS2Pr_Wait1		5
-`define PS2Pr_Wait2		6
-`define PS2Pr_Wait3		7
+`define PS2Pr_ResetDelay 		 0
+`define PS2Pr_SendReset	 		 1
+`define PS2Pr_WaitResetACK 	 2
+`define PS2Pr_WaitBAT			 3
+`define PS2Pr_WaitID				 4
+`define PS2Pr_WaitACK			 5
+`define PS2Pr_Query				 6
+`define PS2Pr_Wait0				 7
+`define PS2Pr_Wait1				 8
+`define PS2Pr_Wait2				 9
+`define PS2Pr_Wait3				10
 
 `define PS2Pr_BAT			8'hAA
 `define PS2Pr_ID			8'h00
@@ -155,7 +159,19 @@ end
 `define Serial_Idle		 1
 `define Serial_Stop		10
 
-reg [$clog2(SERIALPERIOD)-1:0]Serial_Counter=0;
+`define TMR_END	(Timer==0)
+
+`define PS2Tr_Reset		 0
+`define PS2Tr_Idle		 1
+`define PS2Tr_ClockLow	 2
+`define PS2Tr_Parity		11
+`define PS2Tr_Stop		12
+`define PS2Tr_ACK			13
+`define PS2Tr_End			14
+`define STARTBIT			 0
+`define STOPBIT			 1
+
+reg [$clog2(MILLIS)-1:0]Timer=0;
 reg SerialSendRequest=0;
 reg [4:0]Serial_STM=0;
 
@@ -166,42 +182,66 @@ reg [7:0]PS2Byte1=0;
 reg [7:0]PS2Byte2=0;
 reg [29:0]SerialSendData=0;
 
+reg ps2dta_reg=0; 	
+reg ps2clk_reg=0;
+reg [3:0]PS2Tr_STM=0;
+reg PS2Tr_PAR=0;
+
 always @(posedge clk)begin
 	if (PS2SendRequest==1)PS2SendRequest<=0;
 	if (SerialSendRequest==1)SerialSendRequest<=0;
+	if (Timer!=0)Timer<=Timer-1;
 		case (PS2Pr_STM)
-			`PS2Pr_Idle:begin
+			`PS2Pr_ResetDelay:begin
+				SetTimer(MILLIS);
+				PS2Pr_STM<=PS2Pr_STM+1;
+			end
+			`PS2Pr_SendReset:begin
+				if (`TMR_END)begin
+					SendPS2(`PS2Pr_RESET);
+					PS2Pr_STM<=PS2Pr_STM+1;
+				end
+			end
+			`PS2Pr_WaitResetACK:begin
+				if (PS2R_NewByte==1)begin
+					if (PS2R_Byte==`PS2Pr_ACK)begin
+						PS2Pr_STM<=PS2Pr_STM+1;
+					end
+					else begin
+						PS2Pr_STM<=0;
+					end
+				end
+			end
+			`PS2Pr_WaitBAT:begin
 				if (PS2R_NewByte==1)begin
 				if (PS2R_Byte==`PS2Pr_BAT)begin
 					PS2Pr_STM<=PS2Pr_STM+1;
 				end
 				else begin
-					SendPS2(`PS2Pr_RESET);
+					PS2Pr_STM<=0;
 				end
 				end
 			end
 			`PS2Pr_WaitID:begin
 				if (PS2R_NewByte==1)begin
-				if (PS2R_Byte==`PS2Pr_ID)begin
-					PS2Pr_STM<=PS2Pr_STM+1;
-					SendPS2(`PS2Pr_REMOTE);
-				end
-				else begin
-					PS2Pr_STM<=0;
-					SendPS2(`PS2Pr_RESET);
-				end
+					if (PS2R_Byte==`PS2Pr_ID)begin
+						PS2Pr_STM<=PS2Pr_STM+1;
+						SendPS2(`PS2Pr_REMOTE);
+					end
+					else begin
+						PS2Pr_STM<=0;
+					end
 				end
 			end
 			`PS2Pr_WaitACK:begin
 				if (PS2R_NewByte==1)begin
-				if (PS2R_Byte==`PS2Pr_ACK)begin
-					PS2Pr_STM<=PS2Pr_STM+1;
-					SendSerial(`PS2Pr_M);
-				end
-				else begin
-					PS2Pr_STM<=0;
-					SendPS2(`PS2Pr_RESET);
-				end
+					if (PS2R_Byte==`PS2Pr_ACK)begin
+						PS2Pr_STM<=PS2Pr_STM+1;
+						SendSerial(`PS2Pr_M);
+					end
+					else begin
+						PS2Pr_STM<=0;
+					end
 				end
 			end
 			`PS2Pr_Query:begin
@@ -212,21 +252,20 @@ always @(posedge clk)begin
 			end
 			`PS2Pr_Wait0:begin
 				if (PS2R_NewByte==1)begin
-				if (PS2R_Byte==`PS2Pr_ACK)begin
-					PS2Pr_STM<=PS2Pr_STM+1;
-				end
-				else begin
-					PS2Pr_STM<=0;
-					SendPS2(`PS2Pr_RESET);
-				end
+					if (PS2R_Byte==`PS2Pr_ACK)begin
+						PS2Pr_STM<=PS2Pr_STM+1;
+					end
+					else begin
+						PS2Pr_STM<=0;
+					end
 				end
 			end
 			`PS2Pr_Wait1:begin
 				if (PS2R_NewByte==1)begin
-				if (PS2R_Byte[`PS2BitSYNC]==1)begin
-					PS2Byte1<=PS2R_Byte;
-					PS2Pr_STM<=PS2Pr_STM+1;
-				end
+					if (PS2R_Byte[`PS2BitSYNC]==1)begin
+						PS2Byte1<=PS2R_Byte;
+						PS2Pr_STM<=PS2Pr_STM+1;
+					end
 				end
 			end
 			`PS2Pr_Wait2:begin
@@ -242,6 +281,7 @@ always @(posedge clk)begin
 				end
 			end
 		endcase
+		
 ///////////////////////////////////////////
 /////////////Serial Transmision////////////
 ///////////////////////////////////////////
@@ -254,58 +294,21 @@ always @(posedge clk)begin
 			if (SerialSendRequest==1)begin
 				Serial_STM<=Serial_STM+1;
 				{SerialSendData,rd}<={1'b1,SerialSendData};
-				Serial_Counter<=SERIALPERIOD;
+				SetTimer(SERIALPERIOD);
 			end
 		end
 		default:begin
-			if (Serial_Counter==0)begin
+			if (`TMR_END)begin
 				Serial_STM<=Serial_STM+1;
 				{SerialSendData,rd}<={1'b1,SerialSendData};
-				Serial_Counter<=SERIALPERIOD;
-			end
-			else begin
-				Serial_Counter<=Serial_Counter-1;
+				SetTimer(SERIALPERIOD);
 			end
 		end
 	endcase
-end
-
-task SendPS2 (input [7:0] ByteToSend);
-begin
-	PS2SendRequest<=1;
-	PS2SendData<=ByteToSend;
-end
-endtask
-
-task SendSerial (input [29:0] ByteToSend);
-begin
-	SerialSendRequest<=1;
-	SerialSendData<=ByteToSend;
-end
-endtask
-
-
+	
 ///////////////////////////////////////////
 //////////////PS2 Transmision//////////////
 ///////////////////////////////////////////
-`define PS2Tr_Reset		 0
-`define PS2Tr_Idle		 1
-`define PS2Tr_ClockLow	 2
-`define PS2Tr_Parity		11
-`define PS2Tr_Stop		12
-`define PS2Tr_ACK			13
-`define PS2Tr_End			14
-`define STARTBIT			 0
-`define STOPBIT			 1
-
-reg [$clog2(HUNDRED)-1:0]PS2Tr_Counter=0;
-reg ps2dta_reg=0; 	
-reg ps2clk_reg=0;
-reg [3:0]PS2Tr_STM=0;
-reg PS2Tr_PAR=0;
-reg [7:0]PS2SendBuffer=0;
-
-always @(posedge clk)begin
 	case (PS2Tr_STM)
 		`PS2Tr_Reset:begin
 			ps2dta_reg<=1; 			//Requerido para algunas CPLD
@@ -315,20 +318,16 @@ always @(posedge clk)begin
 		`PS2Tr_Idle:begin
 			if (PS2SendRequest==1)begin
 				ps2clk_reg<=0;
-				PS2Tr_Counter<=HUNDRED;
+				SetTimer(HUNDRED);
 				PS2Tr_STM<=PS2Tr_STM+1;
-				PS2SendBuffer<=PS2SendData;
 			end
 		end
 		`PS2Tr_ClockLow:begin
-			if (PS2Tr_Counter==0)begin
+			if (`TMR_END)begin
 				ps2dta_reg<=`STARTBIT;
 				ps2clk_reg<=1;
 				PS2Tr_STM<=PS2Tr_STM+1;
 				PS2Tr_PAR<=`PAR_EVEN;
-			end
-			else begin
-				PS2Tr_Counter<=PS2Tr_Counter-1;
 			end
 		end
 		`PS2Tr_Parity:begin
@@ -355,11 +354,32 @@ always @(posedge clk)begin
 		end
 		default:begin
 			if (`PS2CLKFALL)begin
-				{PS2SendBuffer,ps2dta_reg}<={1'b1,PS2SendBuffer};
-				PS2Tr_PAR<=PS2Tr_PAR^PS2SendBuffer[0];
+				{PS2SendData,ps2dta_reg}<={1'b1,PS2SendData};
+				PS2Tr_PAR<=PS2Tr_PAR^PS2SendData[0];
 				PS2Tr_STM<=PS2Tr_STM+1;
 			end
 		end
 	endcase
 end
+
+task SendPS2 (input [7:0] ByteToSend);
+begin
+	PS2SendRequest<=1;
+	PS2SendData<=ByteToSend;
+end
+endtask
+
+task SendSerial (input [29:0] ByteToSend);
+begin
+	SerialSendRequest<=1;
+	SerialSendData<=ByteToSend;
+end
+endtask
+
+task SetTimer(input [31:0]TIME);
+begin
+	Timer<=TIME;
+end
+endtask
+
 endmodule
