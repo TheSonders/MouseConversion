@@ -39,6 +39,7 @@ module MSMouseWrapper
 	(input wire clk,
 	inout wire ps2dta,
 	inout wire ps2clk,
+	input wire rts,
 	output reg rd=0
 	);
 
@@ -60,6 +61,7 @@ localparam MILLIS=(CLKFREQ/1000);
 ///////////////////////////////////////////
 `define PS2CLKRISE	(ps2clkbuf==4'b0011)
 `define PS2CLKFALL	(ps2clkbuf==4'b1100)
+`define RTSRISE		(rtsbuf==4'b0011)
 `define TXIDLE			(PS2Tr_STM==1)
 `define PS2R_Start	 0
 `define PS2R_Parity	 9
@@ -67,6 +69,7 @@ localparam MILLIS=(CLKFREQ/1000);
 `define PS2R_Delay	11
 
 reg [3:0]ps2clkbuf=0;
+reg [3:0]rtsbuf=0;
 reg [3:0]PS2R_STM=0;
 reg PS2R_NewByte=0;
 reg [7:0]PS2R_Byte=0;
@@ -75,6 +78,7 @@ reg [$clog2(PS2PERIOD)-1:0]PS2R_Counter=0;
 
 always @(posedge clk)begin
 	ps2clkbuf<={ps2clkbuf[2:0],ps2clk};
+	rtsbuf<={rtsbuf[2:0],rts};
 	if (PS2R_NewByte==1)PS2R_NewByte<=0;
 	
 	if (PS2R_STM==`PS2R_Delay)begin
@@ -190,7 +194,12 @@ reg PS2Tr_PAR=0;
 always @(posedge clk)begin
 	if (PS2SendRequest==1)PS2SendRequest<=0;
 	if (SerialSendRequest==1)SerialSendRequest<=0;
-	if (Timer!=0)Timer<=Timer-1;
+	if (`RTSRISE)begin
+		PS2Pr_STM<=0;
+		Timer<=0;
+	end
+	else begin
+		if (Timer!=0)Timer<=Timer-1;
 		case (PS2Pr_STM)
 			`PS2Pr_ResetDelay:begin
 				SetTimer(MILLIS);
@@ -281,10 +290,14 @@ always @(posedge clk)begin
 				end
 			end
 		endcase
-		
+	end
 ///////////////////////////////////////////
 /////////////Serial Transmision////////////
 ///////////////////////////////////////////
+	if (`RTSRISE)begin
+		Serial_STM<=0;
+	end
+	else begin
 	case (Serial_STM)
 		`Serial_Reset:begin
 			rd<=1;
@@ -305,10 +318,14 @@ always @(posedge clk)begin
 			end
 		end
 	endcase
-	
+	end
 ///////////////////////////////////////////
 //////////////PS2 Transmision//////////////
 ///////////////////////////////////////////
+	if (`RTSRISE)begin
+		PS2Tr_STM<=0;
+	end
+	else begin
 	case (PS2Tr_STM)
 		`PS2Tr_Reset:begin
 			ps2dta_reg<=1; 			//Requerido para algunas CPLD
@@ -360,6 +377,7 @@ always @(posedge clk)begin
 			end
 		end
 	endcase
+	end
 end
 
 task SendPS2 (input [7:0] ByteToSend);
