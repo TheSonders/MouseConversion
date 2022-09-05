@@ -4,7 +4,7 @@
 /*
 MIT License
 
-Copyright (c) 2022 Antonio Sánchez (@TheSonders)
+Copyright (c) 2022 Antonio SÃ¡nchez (@TheSonders)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -150,7 +150,7 @@ end
 `define PS2Pr_ACK			8'hFA
 `define PS2Pr_READ		8'hEB
 
-`define PS2Pr_M			30'h3FFFFE9A
+`define PS2Pr_M			30'h3FFFFF9A
 `define PS2BitSYNC		3
 
 `define LeftBt				PS2Byte1[0]
