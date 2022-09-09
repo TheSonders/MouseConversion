@@ -4,7 +4,7 @@
 /*
 MIT License
 
-Copyright (c) 2022 Antonio SÃ¡nchez (@TheSonders)
+Copyright (c) 2022 Antonio Sánchez (@TheSonders)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -131,17 +131,19 @@ end
 //////////////PS2 Processing///////////////
 ///////////////////////////////////////////
 
+wire [7:0]YC= ~{PS2Byte1[5],PS2R_Byte[7:1]}+1;
 `define PS2Pr_ResetDelay 		 0
 `define PS2Pr_SendReset	 		 1
 `define PS2Pr_WaitResetACK 	 2
 `define PS2Pr_WaitBAT			 3
 `define PS2Pr_WaitID				 4
 `define PS2Pr_WaitACK			 5
-`define PS2Pr_Query				 6
-`define PS2Pr_Wait0				 7
-`define PS2Pr_Wait1				 8
-`define PS2Pr_Wait2				 9
-`define PS2Pr_Wait3				10
+`define PS2Pr_SendM				 6
+`define PS2Pr_Query				 7
+`define PS2Pr_Wait0				 8
+`define PS2Pr_Wait1				 9
+`define PS2Pr_Wait2				10
+`define PS2Pr_Wait3				11
 
 `define PS2Pr_BAT			8'hAA
 `define PS2Pr_ID			8'h00
@@ -150,18 +152,17 @@ end
 `define PS2Pr_ACK			8'hFA
 `define PS2Pr_READ		8'hEB
 
-`define PS2Pr_M			30'h3FFFFF9A
+`define PS2Pr_M			30'h39AFFFFF
+
 `define PS2BitSYNC		3
 
 `define LeftBt				PS2Byte1[0]
 `define RightBt			PS2Byte1[1]
-`define MSMByte1			{2'b11,`LeftBt,`RightBt,PS2Byte1[5],PS2R_Byte[7],PS2Byte1[4],PS2Byte2[7]}
+`define MSMByte1			{2'b11,`LeftBt,`RightBt,YC[7:6],PS2Byte1[4],PS2Byte2[7]}
 `define MSMByte2			{2'b10,PS2Byte2[6:1]}
-`define MSMByte3			{2'b10,PS2R_Byte[6:1]}
+`define MSMByte3			{2'b10,YC[5:0]}
 
 `define Serial_Reset		 0
-`define Serial_Idle		 1
-`define Serial_Stop		10
 
 `define TMR_END	(Timer==0)
 
@@ -195,7 +196,7 @@ always @(posedge clk)begin
 	if (PS2SendRequest==1)PS2SendRequest<=0;
 	if (SerialSendRequest==1)SerialSendRequest<=0;
 	if (`RTSRISE)begin
-		PS2Pr_STM<=0;
+		PS2Pr_STM<=`PS2Pr_SendM;
 		Timer<=0;
 	end
 	else begin
@@ -246,15 +247,18 @@ always @(posedge clk)begin
 				if (PS2R_NewByte==1)begin
 					if (PS2R_Byte==`PS2Pr_ACK)begin
 						PS2Pr_STM<=PS2Pr_STM+1;
-						SendSerial(`PS2Pr_M);
 					end
 					else begin
 						PS2Pr_STM<=0;
 					end
 				end
 			end
+			`PS2Pr_SendM:begin
+					PS2Pr_STM<=PS2Pr_STM+1;
+					SendSerial(`PS2Pr_M);
+			end
 			`PS2Pr_Query:begin
-				if (SerialSendRequest==0 && Serial_STM==1)begin
+				if (SerialSendRequest==0 && Serial_STM==0)begin
 					SendPS2(`PS2Pr_READ);
 					PS2Pr_STM<=PS2Pr_STM+1;
 				end
@@ -300,14 +304,13 @@ always @(posedge clk)begin
 	else begin
 	case (Serial_STM)
 		`Serial_Reset:begin
-			rd<=1;
-			Serial_STM<=Serial_STM+1;
-		end
-		`Serial_Idle:begin
 			if (SerialSendRequest==1)begin
 				Serial_STM<=Serial_STM+1;
 				{SerialSendData,rd}<={1'b1,SerialSendData};
 				SetTimer(SERIALPERIOD);
+			end
+			else begin
+				rd<=1;
 			end
 		end
 		default:begin
