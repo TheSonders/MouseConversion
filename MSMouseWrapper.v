@@ -62,6 +62,7 @@ localparam MILLIS=(CLKFREQ/1000);
 `define PS2CLKRISE	(ps2clkbuf==4'b0011)
 `define PS2CLKFALL	(ps2clkbuf==4'b1100)
 `define RTSRISE		(rtsbuf==4'b0011)
+`define RTSFALL		(rtsbuf==4'b0000)
 `define TXIDLE			(PS2Tr_STM==1)
 `define PS2R_Start	 0
 `define PS2R_Parity	 9
@@ -180,6 +181,7 @@ wire RightBt=PS2Byte1[1];
 reg LBut=0;
 reg RBut=0;
 reg FUpdate=0;
+reg PS2Detected=0;
 
 reg [$clog2(MILLIS)-1:0]Timer=0;
 reg SerialSendRequest=0;
@@ -200,7 +202,7 @@ reg PS2Tr_PAR=0;
 always @(posedge clk)begin
 	if (PS2SendRequest==1)PS2SendRequest<=0;
 	if (SerialSendRequest==1)SerialSendRequest<=0;
-	if (`RTSRISE)begin
+	if (`RTSFALL && PS2Detected==1)begin
 		PS2Pr_STM<=`PS2Pr_SendM;
 		Timer<=0;
 	end
@@ -252,6 +254,7 @@ always @(posedge clk)begin
 				if (PS2R_NewByte==1)begin
 					if (PS2R_Byte==`PS2Pr_ACK)begin
 						PS2Pr_STM<=PS2Pr_STM+1;
+						PS2Detected<=1;
 					end
 					else begin
 						PS2Pr_STM<=0;
@@ -259,9 +262,11 @@ always @(posedge clk)begin
 				end
 			end
 			`PS2Pr_SendM:begin
+				if(`RTSRISE)begin
 					PS2Pr_STM<=PS2Pr_STM+1;
 					SendSerial(`PS2Pr_M);
 					FUpdate<=1;
+				end
 			end
 			`PS2Pr_Query:begin
 				if (SerialSendRequest==0 && Serial_STM==0)begin
@@ -296,6 +301,7 @@ always @(posedge clk)begin
 			`PS2Pr_Wait3:begin
 				if (PS2R_NewByte==1)begin
 					PS2Pr_STM<=`PS2Pr_Query;
+					SerialSendRequest<=1;
 					if (XC!=0 || YC!=0 || LBut!=LeftBt || RBut!=RightBt || FUpdate==1) begin
 						SendSerial({1'b1,`MSMByte3,2'b01,`MSMByte2,2'b01,`MSMByte1,1'b0});
 						LBut<=LeftBt;
@@ -309,8 +315,9 @@ always @(posedge clk)begin
 ///////////////////////////////////////////
 /////////////Serial Transmision////////////
 ///////////////////////////////////////////
-	if (`RTSRISE)begin
+	if (`RTSFALL)begin
 		Serial_STM<=0;
+		rd<=1;
 	end
 	else begin
 	case (Serial_STM)
@@ -336,13 +343,15 @@ always @(posedge clk)begin
 ///////////////////////////////////////////
 //////////////PS2 Transmision//////////////
 ///////////////////////////////////////////
-	if (`RTSRISE)begin
+	if (`RTSFALL && PS2Detected==1)begin
 		PS2Tr_STM<=0;
+		ps2dta_reg<=1; 			//Requerido para algunas CPLD
+		ps2clk_reg<=1;
 	end
 	else begin
 	case (PS2Tr_STM)
 		`PS2Tr_Reset:begin
-			ps2dta_reg<=1; 			//Requerido para algunas CPLD
+			ps2dta_reg<=1; 		
 			ps2clk_reg<=1;
 			PS2Tr_STM<=PS2Tr_STM+1;
 		end
