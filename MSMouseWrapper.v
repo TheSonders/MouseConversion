@@ -130,8 +130,6 @@ end
 ///////////////////////////////////////////
 //////////////PS2 Processing///////////////
 ///////////////////////////////////////////
-
-wire [7:0]YC= ~{PS2Byte1[5],PS2R_Byte[7:1]}+1;
 `define PS2Pr_ResetDelay 		 0
 `define PS2Pr_SendReset	 		 1
 `define PS2Pr_WaitResetACK 	 2
@@ -156,10 +154,8 @@ wire [7:0]YC= ~{PS2Byte1[5],PS2R_Byte[7:1]}+1;
 
 `define PS2BitSYNC		3
 
-`define LeftBt				PS2Byte1[0]
-`define RightBt			PS2Byte1[1]
-`define MSMByte1			{2'b11,`LeftBt,`RightBt,YC[7:6],PS2Byte1[4],PS2Byte2[7]}
-`define MSMByte2			{2'b10,PS2Byte2[6:1]}
+`define MSMByte1			{2'b11,LeftBt,RightBt,YC[7:6],XC[7:6]}
+`define MSMByte2			{2'b10,XC[5:0]}
 `define MSMByte3			{2'b10,YC[5:0]}
 
 `define Serial_Reset		 0
@@ -175,6 +171,15 @@ wire [7:0]YC= ~{PS2Byte1[5],PS2R_Byte[7:1]}+1;
 `define PS2Tr_End			14
 `define STARTBIT			 0
 `define STOPBIT			 1
+
+wire [7:0]YC= ~{PS2Byte1[5],PS2R_Byte[7:1]}+1;
+wire [7:0]XC= {PS2Byte1[4],PS2Byte2[7:1]};
+wire LeftBt=PS2Byte1[0];
+wire RightBt=PS2Byte1[1];
+
+reg LBut=0;
+reg RBut=0;
+reg FUpdate=0;
 
 reg [$clog2(MILLIS)-1:0]Timer=0;
 reg SerialSendRequest=0;
@@ -256,6 +261,7 @@ always @(posedge clk)begin
 			`PS2Pr_SendM:begin
 					PS2Pr_STM<=PS2Pr_STM+1;
 					SendSerial(`PS2Pr_M);
+					FUpdate<=1;
 			end
 			`PS2Pr_Query:begin
 				if (SerialSendRequest==0 && Serial_STM==0)begin
@@ -290,7 +296,12 @@ always @(posedge clk)begin
 			`PS2Pr_Wait3:begin
 				if (PS2R_NewByte==1)begin
 					PS2Pr_STM<=`PS2Pr_Query;
-					SendSerial({1'b1,`MSMByte3,2'b01,`MSMByte2,2'b01,`MSMByte1,1'b0});
+					if (XC!=0 || YC!=0 || LBut!=LeftBt || RBut!=RightBt || FUpdate==1) begin
+						SendSerial({1'b1,`MSMByte3,2'b01,`MSMByte2,2'b01,`MSMByte1,1'b0});
+						LBut<=LeftBt;
+						RBut<=RightBt;
+						FUpdate<=0;
+					end
 				end
 			end
 		endcase
