@@ -298,7 +298,7 @@ always @(posedge clk)begin
 					endcase
 				end
 				else if (SerialSendRequest==0 && Serial_STM==0)begin
-					if (XC!=0 || YC!=0 || LBut!=Prev_LBut || RBut!=Prev_RBut || FUpdate==1) begin
+					if (AccX!=0 || AccY!=0 || LBut!=Prev_LBut || RBut!=Prev_RBut || FUpdate==1) begin
 						SendSerial({1'b1,`MSMByte3,2'b01,`MSMByte2,2'b01,`MSMByte1,1'b0});
 						FUpdate<=0;
 						Prev_LBut<=LBut;
