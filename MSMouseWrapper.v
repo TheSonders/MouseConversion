@@ -25,7 +25,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 PS2MOUSE -> MSMOUSE Conversion
-Preliminary
+STREAM VERSION
 
 References:
 https://roborooter.com/post/serial-mice/
@@ -138,16 +138,13 @@ end
 `define PS2Pr_WaitID				 4
 `define PS2Pr_WaitACK			 5
 `define PS2Pr_SendM				 6
-`define PS2Pr_Query				 7
-`define PS2Pr_Wait0				 8
-`define PS2Pr_Wait1				 9
-`define PS2Pr_Wait2				10
-`define PS2Pr_Wait3				11
+`define PS2Pr_Loop				 7
 
 `define PS2Pr_BAT			8'hAA
 `define PS2Pr_ID			8'h00
 `define PS2Pr_RESET		8'hFF
 `define PS2Pr_REMOTE		8'hF0
+`define PS2Pr_STREAM		8'hF4
 `define PS2Pr_ACK			8'hFA
 `define PS2Pr_READ		8'hEB
 
@@ -155,9 +152,9 @@ end
 
 `define PS2BitSYNC		3
 
-`define MSMByte1			{2'b11,LeftBt,RightBt,YC[7:6],XC[7:6]}
-`define MSMByte2			{2'b10,XC[5:0]}
-`define MSMByte3			{2'b10,YC[5:0]}
+`define MSMByte1			{2'b11,LBut,RBut,AccY[7:6],AccX[7:6]}
+`define MSMByte2			{2'b10,AccX[5:0]}
+`define MSMByte3			{2'b10,AccY[5:0]}
 
 `define Serial_Reset		 0
 
@@ -173,13 +170,24 @@ end
 `define STARTBIT			 0
 `define STOPBIT			 1
 
-wire [7:0]YC= ~{PS2Byte1[5],PS2R_Byte[7:1]}+1;
-wire [7:0]XC= {PS2Byte1[4],PS2Byte2[7:1]};
-wire LeftBt=PS2Byte1[0];
-wire RightBt=PS2Byte1[1];
+wire [7:0]YC= ~{MSBY,PS2R_Byte[7:1]}+1;
+wire [7:0]XC= {MSBX,PS2R_Byte[7:1]};
+wire LeftBt=PS2R_Byte[0];
+wire RightBt=PS2R_Byte[1];
+wire MSBX=PS2R_Byte[4];
+wire MSBY=PS2R_Byte[5];
+wire bitSYNC=PS2R_Byte[3];
 
 reg LBut=0;
 reg RBut=0;
+reg Prev_LBut=0;
+reg Prev_RBut=0;
+reg msbX=0;
+reg msbY=0;
+reg [1:0]ByteSync=0;
+reg [7:0]AccX=0;
+reg [7:0]AccY=0;
+
 reg FUpdate=0;
 reg PS2Detected=0;
 
@@ -190,8 +198,6 @@ reg [4:0]Serial_STM=0;
 reg [3:0]PS2Pr_STM=0;
 reg PS2SendRequest=0;
 reg [7:0]PS2SendData=0;
-reg [7:0]PS2Byte1=0;
-reg [7:0]PS2Byte2=0;
 reg [29:0]SerialSendData=0;
 
 reg ps2dta_reg=0; 	
@@ -243,7 +249,7 @@ always @(posedge clk)begin
 				if (PS2R_NewByte==1)begin
 					if (PS2R_Byte==`PS2Pr_ID)begin
 						PS2Pr_STM<=PS2Pr_STM+1;
-						SendPS2(`PS2Pr_REMOTE);
+						SendPS2(`PS2Pr_STREAM);
 					end
 					else begin
 						PS2Pr_STM<=0;
@@ -255,6 +261,7 @@ always @(posedge clk)begin
 					if (PS2R_Byte==`PS2Pr_ACK)begin
 						PS2Pr_STM<=PS2Pr_STM+1;
 						PS2Detected<=1;
+						ByteSync<=0;
 					end
 					else begin
 						PS2Pr_STM<=0;
@@ -268,45 +275,36 @@ always @(posedge clk)begin
 					FUpdate<=1;
 				end
 			end
-			`PS2Pr_Query:begin
-				if (SerialSendRequest==0 && Serial_STM==0)begin
-					SendPS2(`PS2Pr_READ);
-					PS2Pr_STM<=PS2Pr_STM+1;
-				end
-			end
-			`PS2Pr_Wait0:begin
+			`PS2Pr_Loop:begin
 				if (PS2R_NewByte==1)begin
-					if (PS2R_Byte==`PS2Pr_ACK)begin
-						PS2Pr_STM<=PS2Pr_STM+1;
-					end
-					else begin
-						PS2Pr_STM<=0;
-					end
+					case (ByteSync)
+						0:begin
+							if (bitSYNC==1)begin
+								ByteSync<=ByteSync+1;
+								LBut<=LeftBt;
+								RBut<=RightBt;
+								msbX<=MSBX;
+								msbY<=MSBY;
+							end
+						end
+						1:begin
+							ByteSync<=ByteSync+1;
+							AccX<=AccX+XC;
+						end
+						2:begin
+							ByteSync<=0;
+							AccY<=AccY+YC;
+						end
+					endcase
 				end
-			end
-			`PS2Pr_Wait1:begin
-				if (PS2R_NewByte==1)begin
-					if (PS2R_Byte[`PS2BitSYNC]==1)begin
-						PS2Byte1<=PS2R_Byte;
-						PS2Pr_STM<=PS2Pr_STM+1;
-					end
-				end
-			end
-			`PS2Pr_Wait2:begin
-				if (PS2R_NewByte==1)begin
-					PS2Byte2<=PS2R_Byte;
-					PS2Pr_STM<=PS2Pr_STM+1;
-				end
-			end
-			`PS2Pr_Wait3:begin
-				if (PS2R_NewByte==1)begin
-					PS2Pr_STM<=`PS2Pr_Query;
-					SerialSendRequest<=1;
-					if (XC!=0 || YC!=0 || LBut!=LeftBt || RBut!=RightBt || FUpdate==1) begin
+				else if (SerialSendRequest==0 && Serial_STM==0)begin
+					if (XC!=0 || YC!=0 || LBut!=Prev_LBut || RBut!=Prev_RBut || FUpdate==1) begin
 						SendSerial({1'b1,`MSMByte3,2'b01,`MSMByte2,2'b01,`MSMByte1,1'b0});
-						LBut<=LeftBt;
-						RBut<=RightBt;
 						FUpdate<=0;
+						Prev_LBut<=LBut;
+						Prev_RBut<=RBut;
+						AccX<=0;
+						AccY<=0;
 					end
 				end
 			end
