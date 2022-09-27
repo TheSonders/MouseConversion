@@ -180,7 +180,6 @@ wire RightBt=PS2Byte1[1];
 
 reg LBut=0;
 reg RBut=0;
-reg FUpdate=0;
 reg PS2Detected=0;
 
 reg [$clog2(MILLIS)-1:0]Timer=0;
@@ -265,7 +264,6 @@ always @(posedge clk)begin
 				if(`RTSRISE)begin
 					PS2Pr_STM<=PS2Pr_STM+1;
 					SendSerial(`PS2Pr_M);
-					FUpdate<=1;
 				end
 			end
 			`PS2Pr_Query:begin
@@ -290,6 +288,11 @@ always @(posedge clk)begin
 						PS2Byte1<=PS2R_Byte;
 						PS2Pr_STM<=PS2Pr_STM+1;
 					end
+					//
+					else begin
+						PS2Pr_STM<=`PS2Pr_Query;
+					end
+					//
 				end
 			end
 			`PS2Pr_Wait2:begin
@@ -302,11 +305,10 @@ always @(posedge clk)begin
 				if (PS2R_NewByte==1)begin
 					PS2Pr_STM<=`PS2Pr_Query;
 					SerialSendRequest<=1;
-					if (XC!=0 || YC!=0 || LBut!=LeftBt || RBut!=RightBt || FUpdate==1) begin
+					if (XC!=0 || YC!=0 || LBut!=LeftBt || RBut!=RightBt) begin
 						SendSerial({1'b1,`MSMByte3,2'b01,`MSMByte2,2'b01,`MSMByte1,1'b0});
 						LBut<=LeftBt;
 						RBut<=RightBt;
-						FUpdate<=0;
 					end
 				end
 			end
